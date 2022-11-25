@@ -1,4 +1,4 @@
-use crate::timelogger::TimeLogger;
+use crate::timelogger::{TimeLogger, log, fix_incomplete, summary};
 use clap::Parser;
 use console::Term;
 use std::fs;
@@ -10,16 +10,16 @@ struct Args {}
 pub mod timelogger;
 
 fn main() -> std::io::Result<()> {
-    let log: PathBuf = dirs::home_dir().unwrap().join(".tlr");
-    let mut tlr: TimeLogger = serde_yaml::from_slice(&fs::read(&log).unwrap()).unwrap();
+    let log_file: PathBuf = dirs::home_dir().unwrap().join(".tlr");
+    let mut tlr: TimeLogger = serde_yaml::from_slice(&fs::read(&log_file).unwrap()).unwrap();
     let _args = Args::parse();
 
     let term = Term::stdout();
-    tlr.fix_incomplete(&term);
-    tlr.summary(&term)?;
+    fix_incomplete(&mut tlr.log, &term);
+    summary(&mut tlr.log, &term)?;
     term.write_line("")?;
-    tlr.log();
+    log(&mut tlr.log);
 
-    fs::write(log, serde_yaml::to_string(&tlr).unwrap()).unwrap();
+    fs::write(log_file, serde_yaml::to_string(&tlr).unwrap()).unwrap();
     Ok(())
 }
