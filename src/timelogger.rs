@@ -6,14 +6,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
-pub struct TimeLogger(BTreeMap<NaiveDate, Vec<NaiveTime>>);
+pub struct TimeLogger {
+    log: BTreeMap<NaiveDate, Vec<NaiveTime>>,
+}
 
 impl TimeLogger {
     pub fn log(&mut self) {
         //-> std::io::Result<()> {
         let now: NaiveDateTime = Local::now().naive_local();
         let date: NaiveDate = now.date();
-        self.0
+        self.log
             .entry(date)
             .and_modify(|time_stamps| Self::edit_date(date, time_stamps))
             .or_insert_with(|| {
@@ -25,7 +27,7 @@ impl TimeLogger {
 
     pub fn fix_incomplete(&mut self, term: &Term) {
         let today: NaiveDate = Local::now().naive_local().date();
-        self.0.iter_mut().for_each(|(date, time_stamps)| {
+        self.log.iter_mut().for_each(|(date, time_stamps)| {
             if (time_stamps.len() % 2) != 0 && date != &today {
                 term.write_line(
                     format!(
@@ -75,7 +77,7 @@ impl TimeLogger {
     pub fn summary(&self, term: &Term) -> std::io::Result<()> {
         let today: NaiveDate = Local::now().naive_local().date();
         let mut sum_ot: Duration = Duration::zero();
-        self.0.iter().for_each(|(date, timestamps)| {
+        self.log.iter().for_each(|(date, timestamps)| {
             // TODO(Oskar): figure out how to throw a propper error from map
             let is_today = &today != date;
             let mut day_ot = Duration::zero();
