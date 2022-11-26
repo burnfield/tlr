@@ -11,62 +11,55 @@ pub struct TimeLogger {
 }
 
 pub fn log(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
-    //-> std::io::Result<()> {
     let now: NaiveDateTime = Local::now().naive_local();
     let date: NaiveDate = now.date();
+
+    let prompt = &date.format("Today %a %Y-%m-%d");
+    let proposal = &now.time().format("%H:%M");
+
     log.entry(date)
-        .and_modify(|time_stamps| edit_date(date, time_stamps))
+        .and_modify(|time_stamps| {
+            let proposal = &format!("{} {}", chain_time_stamps(time_stamps), proposal);
+            edit_time_stamps(time_stamps, prompt, proposal);
+        })
         .or_insert_with(|| {
-            let time_stamps: &mut Vec<NaiveTime> = &mut Vec::new();
-            edit_date(date, time_stamps);
+            let time_stamps = &mut Vec::new();
+            edit_time_stamps(time_stamps, prompt, proposal);
             time_stamps.to_vec()
         });
 }
 
-pub fn fix_incomplete(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>, term: &Term) {
+pub fn fix_incomplete(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
     let today: NaiveDate = Local::now().naive_local().date();
-    log.iter_mut().for_each(|(date, time_stamps)| {
-        if (time_stamps.len() % 2) != 0 && date != &today {
-            term.write_line(
-                format!(
-                    "{}",
-                    style("Fixing incomplete day!")
-                        .magenta()
-                        .on_black()
-                        .underlined()
-                        .bold()
-                )
-                .as_str(),
-            )
-            .unwrap();
-            edit_date(*date, time_stamps)
-        }
-    });
+    log.iter_mut()
+        .filter(|(date, time_stamps)| (time_stamps.len() % 2) != 0 && *date != &today)
+        .for_each(|(date, time_stamps)| {
+            let prompt = date.format("Fixing %a %Y-%m-%d");
+            let proposal = &format!("{} {}", chain_time_stamps(time_stamps), "??:??");
+            edit_time_stamps(time_stamps, prompt, proposal)
+        });
 }
 
-fn edit_date(date: NaiveDate, time_stamps: &mut Vec<NaiveTime>) {
-    time_stamps.push(Local::now().naive_local().time());
-    loop {
-        let input: String = Input::new()
-            .with_prompt(format!(
-                "{} {}",
-                style(format!("date({} {})", date.weekday(), date)).magenta(),
-                style("Time stamps").cyan().bold()
-            ))
-            .with_initial_text(chain_time_stamps(time_stamps))
-            .interact_text()
-            .unwrap();
+fn edit_time_stamps<T, S>(time_stamps: &mut Vec<NaiveTime>, prompt: T, proposal: &S)
+where
+    T: std::fmt::Display,
+    S: std::fmt::Display,
+{
+    let prompt: String = style(prompt).bold().to_string();
+    let proposal = proposal.to_string();
 
-        let input_parsed = input
+    // Loops until a parseable result has been found
+    loop {
+        if let Ok(res) = Input::<String>::new()
+            .with_prompt(&prompt)
+            .with_initial_text(&proposal)
+            .interact_text()
+            .unwrap()
             .split(' ')
             .map(|x| NaiveTime::parse_from_str(x, "%H:%M"))
-            .collect::<Result<Vec<_>, _>>();
-
-        if let Ok(res) = input_parsed {
-            time_stamps.clear();
-            for time_stamp in res.iter() {
-                time_stamps.push(*time_stamp);
-            }
+            .collect::<Result<Vec<NaiveTime>, _>>()
+        {
+            *time_stamps = res.to_vec();
             break;
         }
     }

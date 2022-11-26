@@ -15,10 +15,9 @@ fn main() -> std::io::Result<()> {
     let _args = Args::parse();
 
     let term = Term::stdout();
-    fix_incomplete(&mut tlr.log, &term);
-    summary(&mut tlr.log, &term)?;
-    term.write_line("")?;
+    fix_incomplete(&mut tlr.log);
     log(&mut tlr.log);
+    summary(&mut tlr.log, &term)?;
 
     fs::write(log_file, serde_yaml::to_string(&tlr).unwrap()).unwrap();
     Ok(())
