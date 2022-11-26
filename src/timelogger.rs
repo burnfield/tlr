@@ -1,7 +1,9 @@
 use chrono::prelude::*;
-use chrono::{Duration, NaiveDate, NaiveTime};
-use console::{style, Term};
+use chrono::{NaiveDate, NaiveTime};
+use comfy_table::Table;
+use console::style;
 use dialoguer::Input;
+use humantime::format_duration;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -65,42 +67,40 @@ where
     }
 }
 
-pub fn summary(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>, term: &Term) -> std::io::Result<()> {
+pub fn summary(log: &BTreeMap<NaiveDate, Vec<NaiveTime>>) {
+    let mut table = Table::new();
+    table.set_header(vec![
+        "Date",
+        "Duration",
+        "Over time",
+        "Aggregated over time",
+        "Time stamps",
+    ]);
     let today: NaiveDate = Local::now().naive_local().date();
-    let mut sum_ot: Duration = Duration::zero();
-    log.iter().for_each(|(date, timestamps)| {
-        // TODO(Oskar): figure out how to throw a propper error from map
-        let is_today = &today != date;
-        let mut day_ot = Duration::zero();
-        if is_today {
-            day_ot = sum_timestamps(timestamps);
-        }
-        sum_ot = sum_ot + day_ot;
-        let mut sum_ot_str = style(format!("OT({})", format_duration(sum_ot)));
-        if sum_ot >= Duration::hours(8) || sum_ot <= Duration::hours(-8) {
-            sum_ot_str = sum_ot_str.red().bold();
-        } else if sum_ot >= Duration::hours(4) || sum_ot <= Duration::hours(-4) {
-            sum_ot_str = sum_ot_str.yellow();
-        } else {
-            sum_ot_str = sum_ot_str.green();
-        }
-        //Day date timestamps overtime sum_ot
-        let timestamps: String = chain_time_stamps(timestamps);
+    let mut sum_ot: chrono::Duration = chrono::Duration::zero();
 
-        if (today - *date) <= Duration::days(7) && is_today {
-            term.write_line(
-                format!(
-                    "{} {} {}",
-                    style(format!("date({} {})", date.weekday(), date)).magenta(),
-                    sum_ot_str,
-                    style(format!("time stamps({})", timestamps)).cyan(),
-                )
-                .as_str(),
-            )
-            .unwrap();
-        }
-    });
-    Ok(())
+    log.iter()
+        .filter(|(date, _time_stamps)| *date != &today)
+        .for_each(|(date, time_stamps)| {
+            let total_time = sum_timestamps(time_stamps);
+            let day_ot = chrono::Duration::minutes(-468) + total_time;
+            sum_ot = sum_ot + day_ot;
+            //Day date timestamps overtime sum_ot
+            let time_stamps: String = chain_time_stamps(time_stamps);
+
+            if (today - *date) <= chrono::Duration::days(7) {
+                let date = date.format("%a %Y-%m-%d").to_string();
+                table.add_row(vec![
+                    date,
+                    format_chrono_duration(total_time),
+                    format_chrono_duration(day_ot),
+                    format_chrono_duration(sum_ot),
+                    time_stamps,
+                ]);
+            }
+        });
+
+    println!("{table}");
 }
 
 fn chain_time_stamps(time_stamps: &[NaiveTime]) -> String {
@@ -111,26 +111,16 @@ fn chain_time_stamps(time_stamps: &[NaiveTime]) -> String {
         .join(" ")
 }
 
-fn format_duration(duration: Duration) -> String {
-    let mut tmp = duration;
-    let days = tmp.num_days();
-
-    tmp = tmp - Duration::days(days);
-    let hours = tmp.num_hours();
-
-    tmp = tmp - Duration::hours(hours);
-    let minutes = tmp.num_minutes();
-
-    tmp = tmp - Duration::minutes(minutes);
-    let seconds = tmp.num_seconds();
-    if minutes < 0 {
-        format!("-{}:{}:{}", -hours, -minutes, -seconds)
-    } else {
-        format!("{}:{}:{}", hours, minutes, seconds)
+fn format_chrono_duration(duration: chrono::Duration) -> String {
+    // humantime doesnt take chrono::Duration
+    match duration < chrono::Duration::zero() {
+        true => format!("-{}", format_duration((-duration).to_std().unwrap())),
+        false => format_duration(duration.to_std().unwrap()).to_string(),
     }
+    .to_string()
 }
 
-fn sum_timestamps(timestamps: &[NaiveTime]) -> Duration {
+fn sum_timestamps(timestamps: &[NaiveTime]) -> chrono::Duration {
     // TODO(Oskar): ensure order within vector
     timestamps
         .to_vec()
@@ -140,5 +130,5 @@ fn sum_timestamps(timestamps: &[NaiveTime]) -> Duration {
                 <[NaiveTime; 2]>::try_from(timeinterval).expect("Odd log points on day");
             end - start
         })
-        .fold(Duration::minutes(-468), |acc, b| acc + b)
+        .fold(chrono::Duration::zero(), |acc, b| acc + b)
 }
