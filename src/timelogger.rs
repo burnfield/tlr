@@ -9,15 +9,18 @@ use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
 pub struct TimeLogger {
-    pub log: BTreeMap<NaiveDate, Vec<NaiveTime>>,
+    workday_minutes: Option<i64>,
+    log: BTreeMap<NaiveDate, Vec<NaiveTime>>,
 }
 
-pub fn log(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
+pub fn log(log: &mut TimeLogger) {
+    let log = &mut log.log;
     let now: NaiveDateTime = Local::now().naive_local();
     let date: NaiveDate = now.date();
 
     let prompt = &date.format("Today %a %Y-%m-%d");
     let proposal = &now.time().format("%H:%M");
+    fix_incomplete(log);
 
     log.entry(date)
         .and_modify(|time_stamps| {
@@ -31,10 +34,50 @@ pub fn log(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
         });
 }
 
-pub fn fix_incomplete(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
+pub fn summary(tlr: &TimeLogger) {
+    let log: &BTreeMap<NaiveDate, Vec<NaiveTime>> = &tlr.log;
+    let work_day_minutes: Option<i64> = tlr.workday_minutes;
+    let today: NaiveDate = Local::now().naive_local().date();
+
+    let mut table = Table::new();
+
+    // table header
+    let mut header = vec!["Date", "Duration", "Time stamps"];
+    if work_day_minutes.is_some() {
+        header.push("Over time");
+        header.push("Aggregated over time");
+    }
+    table.set_header(header);
+
+    // table content
+    let mut sum_ot: chrono::Duration = chrono::Duration::zero();
+    let all_complete_days = log
+        .iter()
+        .filter(|(date, _time_stamps)| *date != &today)
+        .filter_map(|(date, time_stamps)| {
+            generate_tlr_table_rows(date, time_stamps, &mut sum_ot, work_day_minutes)
+        })
+        .collect::<Vec<Vec<String>>>();
+
+    // takes the last complete 5 days
+    let num_last_complete_days = 5;
+    table.add_rows(
+        all_complete_days
+            .iter()
+            .rev()
+            .take(num_last_complete_days)
+            .rev(),
+    );
+
+    println!("{table}");
+}
+
+fn fix_incomplete(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
+    // TODO(Oskar): extend this to fix time stamp ordering
     let today: NaiveDate = Local::now().naive_local().date();
     log.iter_mut()
-        .filter(|(date, time_stamps)| (time_stamps.len() % 2) != 0 && *date != &today)
+        .filter(|(date, _time_stamps)| *date != &today)
+        .filter(|(_date, time_stamps)| (time_stamps.len() % 2) != 0)
         .for_each(|(date, time_stamps)| {
             let prompt = date.format("Fixing %a %Y-%m-%d");
             let proposal = &format!("{} {}", chain_time_stamps(time_stamps), "??:??");
@@ -67,40 +110,26 @@ where
     }
 }
 
-pub fn summary(log: &BTreeMap<NaiveDate, Vec<NaiveTime>>) {
-    let mut table = Table::new();
-    table.set_header(vec![
-        "Date",
-        "Duration",
-        "Over time",
-        "Aggregated over time",
-        "Time stamps",
-    ]);
-    let today: NaiveDate = Local::now().naive_local().date();
-    let mut sum_ot: chrono::Duration = chrono::Duration::zero();
+fn generate_tlr_table_rows(
+    date: &NaiveDate,
+    time_stamps: &[NaiveTime],
+    sum_ot: &mut chrono::Duration,
+    work_day_minutes: Option<i64>,
+) -> Option<Vec<String>> {
+    // default part
+    let total_time = sum_timestamps(time_stamps).ok()?;
+    let time_stamps: String = chain_time_stamps(time_stamps);
+    let date = date.format("%a %Y-%m-%d").to_string();
+    let mut row = vec![date, format_chrono_duration(total_time), time_stamps];
 
-    log.iter()
-        .filter(|(date, _time_stamps)| *date != &today)
-        .for_each(|(date, time_stamps)| {
-            let total_time = sum_timestamps(time_stamps);
-            let day_ot = chrono::Duration::minutes(-468) + total_time;
-            sum_ot = sum_ot + day_ot;
-            //Day date timestamps overtime sum_ot
-            let time_stamps: String = chain_time_stamps(time_stamps);
-
-            if (today - *date) <= chrono::Duration::days(7) {
-                let date = date.format("%a %Y-%m-%d").to_string();
-                table.add_row(vec![
-                    date,
-                    format_chrono_duration(total_time),
-                    format_chrono_duration(day_ot),
-                    format_chrono_duration(sum_ot),
-                    time_stamps,
-                ]);
-            }
-        });
-
-    println!("{table}");
+    // optional part
+    if let Some(work_day_minutes) = work_day_minutes {
+        let day_ot = chrono::Duration::minutes(-work_day_minutes) + total_time;
+        row.push(format_chrono_duration(day_ot));
+        *sum_ot = day_ot + *sum_ot;
+        row.push(format_chrono_duration(*sum_ot));
+    };
+    Some(row)
 }
 
 fn chain_time_stamps(time_stamps: &[NaiveTime]) -> String {
@@ -117,18 +146,18 @@ fn format_chrono_duration(duration: chrono::Duration) -> String {
         true => format!("-{}", format_duration((-duration).to_std().unwrap())),
         false => format_duration(duration.to_std().unwrap()).to_string(),
     }
-    .to_string()
 }
 
-fn sum_timestamps(timestamps: &[NaiveTime]) -> chrono::Duration {
-    // TODO(Oskar): ensure order within vector
-    timestamps
-        .to_vec()
+fn sum_timestamps(
+    timestamps: &[NaiveTime],
+) -> Result<chrono::Duration, Box<dyn std::error::Error>> {
+    Ok(timestamps
         .chunks(2)
         .map(|timeinterval| {
-            let [start, end] =
-                <[NaiveTime; 2]>::try_from(timeinterval).expect("Odd log points on day");
-            end - start
+            let [start, end] = <[NaiveTime; 2]>::try_from(timeinterval)?;
+            Ok(end - start)
         })
-        .fold(chrono::Duration::zero(), |acc, b| acc + b)
+        .collect::<Result<Vec<chrono::Duration>, Box<dyn std::error::Error>>>()?
+        .iter()
+        .fold(chrono::Duration::zero(), |acc, b| acc + *b))
 }

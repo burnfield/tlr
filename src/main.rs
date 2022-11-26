@@ -1,4 +1,4 @@
-use crate::timelogger::{TimeLogger, log, fix_incomplete, summary};
+use crate::timelogger::{TimeLogger, log, summary};
 use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
@@ -13,9 +13,8 @@ fn main() -> std::io::Result<()> {
     let mut tlr: TimeLogger = serde_yaml::from_slice(&fs::read(&log_file).unwrap()).unwrap();
     let _args = Args::parse();
 
-    fix_incomplete(&mut tlr.log);
-    log(&mut tlr.log);
-    summary(&tlr.log);
+    log(&mut tlr);
+    summary(&tlr);
 
     fs::write(log_file, serde_yaml::to_string(&tlr).unwrap()).unwrap();
     Ok(())
