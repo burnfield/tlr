@@ -2,8 +2,10 @@ use chrono::prelude::*;
 use chrono::{NaiveDate, NaiveTime};
 use comfy_table::Table;
 use console::style;
+use console::Term;
 use dialoguer::Input;
 use humantime::format_duration;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -20,7 +22,7 @@ pub fn log(log: &mut TimeLogger) {
 
     let prompt = &date.format("Today %a %Y-%m-%d");
     let proposal = &now.time().format("%H:%M");
-    fix_incomplete(log);
+    search_and_fix_odd_time_stamps(log);
 
     log.entry(date)
         .and_modify(|time_stamps| {
@@ -72,17 +74,33 @@ pub fn summary(tlr: &TimeLogger) {
     println!("{table}");
 }
 
-fn fix_incomplete(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
-    // TODO(Oskar): extend this to fix time stamp ordering
+fn search_and_fix_odd_time_stamps(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
     let today: NaiveDate = Local::now().naive_local().date();
+    // Uneven time stamps correction
     log.iter_mut()
         .filter(|(date, _time_stamps)| *date != &today)
-        .filter(|(_date, time_stamps)| (time_stamps.len() % 2) != 0)
-        .for_each(|(date, time_stamps)| {
-            let prompt = date.format("Fixing %a %Y-%m-%d");
-            let proposal = &format!("{} {}", chain_time_stamps(time_stamps), "??:??");
-            edit_time_stamps(time_stamps, prompt, proposal)
-        });
+        .filter(|(_d, time_stamps)| (time_stamps.len() % 2) != 0)
+        .for_each(fix_odd_time_stamps);
+}
+
+fn fix_odd_time_stamps(args: (&NaiveDate, &mut Vec<NaiveTime>)) {
+    let (date, time_stamps) = args;
+    let term = Term::stdout();
+    term.write_line(
+        &style("Impossible to count odd number of time stamps, please fix!")
+            .bold()
+            .red()
+            .to_string(),
+    )
+    .unwrap();
+
+    let prompt = date.format("Fixing %a %Y-%m-%d").to_string();
+    let proposal = format!("{} {}", chain_time_stamps(time_stamps), "??:??");
+    edit_time_stamps(time_stamps, &prompt, &proposal)
+}
+
+fn non_linear(time_stamps: &[NaiveTime]) -> bool {
+    time_stamps.iter().tuple_windows().any(|(x, y)| x > y)
 }
 
 fn edit_time_stamps<T, S>(time_stamps: &mut Vec<NaiveTime>, prompt: T, proposal: &S)
@@ -100,10 +118,14 @@ where
             .with_initial_text(&proposal)
             .interact_text()
             .unwrap()
+            .trim()
             .split(' ')
             .map(|x| NaiveTime::parse_from_str(x, "%H:%M"))
             .collect::<Result<Vec<NaiveTime>, _>>()
         {
+            if non_linear(&res) {
+                continue;
+            }
             *time_stamps = res.to_vec();
             break;
         }

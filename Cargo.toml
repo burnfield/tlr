@@ -13,5 +13,6 @@ console = "0.15.2"
 dialoguer = { version = "0.10.2", features = ["fuzzy-select"] }
 dirs = "4.0.0"
 humantime = "2.1.0"
+itertools = "0.10.5"
 serde = { version = "1.0.147", features = ["serde_derive"] }
 serde_yaml = "0.9.14"
