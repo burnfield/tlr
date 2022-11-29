@@ -1,21 +1,40 @@
-use crate::timelogger::{TimeLogger, log, summary};
+use crate::timelogger::{log, summary, TimeLogger};
 use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {}
+struct Cli {
+    /// Storage jfile for time stamps, can be set with environment variable TLR_LOG.
+    /// Note: specified path overrides the environment variable.
+    #[arg(required = true, env = "TLR_LOG")]
+    log_file: PathBuf,
+    /// Print a sumray of NUM days, starting with the latest
+    #[arg(short, long)]
+    print: Option<usize>,
+}
+
 pub mod timelogger;
 
 fn main() -> std::io::Result<()> {
-    let log_file: PathBuf = dirs::home_dir().unwrap().join(".tlr");
-    let mut tlr: TimeLogger = serde_yaml::from_slice(&fs::read(&log_file).unwrap()).unwrap();
-    let _args = Args::parse();
+    let args = Cli::parse();
+
+    let fp: PathBuf = args.log_file;
+    let f = fs::read(&fp)?;
+    let mut tlr: TimeLogger = match f.is_empty() {
+        true => TimeLogger::default(),
+        false => serde_yaml::from_slice(&f).expect("Corrupt log file"),
+    };
+
+    if let Some(num_last_complete_days) = args.print {
+        summary(&tlr, num_last_complete_days);
+        return Ok(());
+    };
 
     log(&mut tlr);
-    summary(&tlr);
+    summary(&tlr, 3);
 
-    fs::write(log_file, serde_yaml::to_string(&tlr).unwrap()).unwrap();
+    fs::write(fp, serde_yaml::to_string(&tlr).unwrap()).unwrap();
     Ok(())
 }

@@ -1,15 +1,14 @@
 use chrono::prelude::*;
 use chrono::{NaiveDate, NaiveTime};
 use comfy_table::Table;
-use console::style;
-use console::Term;
+use console::{Term, style};
 use dialoguer::Input;
 use humantime::format_duration;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct TimeLogger {
     workday_minutes: Option<i64>,
     log: BTreeMap<NaiveDate, Vec<NaiveTime>>,
@@ -36,7 +35,7 @@ pub fn log(log: &mut TimeLogger) {
         });
 }
 
-pub fn summary(tlr: &TimeLogger) {
+pub fn summary(tlr: &TimeLogger, num_last_complete_days: usize) {
     let log: &BTreeMap<NaiveDate, Vec<NaiveTime>> = &tlr.log;
     let work_day_minutes: Option<i64> = tlr.workday_minutes;
     let today: NaiveDate = Local::now().naive_local().date();
@@ -61,8 +60,6 @@ pub fn summary(tlr: &TimeLogger) {
         })
         .collect::<Vec<Vec<String>>>();
 
-    // takes the last complete 5 days
-    let num_last_complete_days = 5;
     table.add_rows(
         all_complete_days
             .iter()
@@ -76,7 +73,6 @@ pub fn summary(tlr: &TimeLogger) {
 
 fn search_and_fix_odd_time_stamps(log: &mut BTreeMap<NaiveDate, Vec<NaiveTime>>) {
     let today: NaiveDate = Local::now().naive_local().date();
-    // Uneven time stamps correction
     log.iter_mut()
         .filter(|(date, _time_stamps)| *date != &today)
         .filter(|(_d, time_stamps)| (time_stamps.len() % 2) != 0)
